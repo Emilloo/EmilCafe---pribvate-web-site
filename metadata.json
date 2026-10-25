@@ -1,0 +1,6 @@
+{
+  "name": "EmilCafe - Specialty Coffee & Boutique Lounge",
+  "description": "Bakıda lüks və rahat atmosferdə xüsusi qəhvə, təzə desertlər və masa rezervasiyası təqdim edən premium kafe.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
