@@ -13,20 +13,28 @@ import {
   AlertCircle,
   ShieldCheck,
   Trash2,
+  Sparkles,
   ExternalLink,
+  Shield,
+  ArrowRight,
 } from 'lucide-react';
 import {
   UserAccount,
   validateEmail,
-  validatePhone,
   saveStoredUser,
   ReservationData,
   cancelStoredReservation,
-  formatCurrency,
 } from '../utils/cafeLogic';
+import {
+  registerWithFirebase,
+  loginWithFirebase,
+  sendFirebasePasswordReset,
+  translateFirebaseError,
+  isFirebaseConfigured,
+} from '../utils/firebase';
 import { MENU_ITEMS } from '../data/cafeData';
 
-type AuthView = 'login' | 'register' | 'forgot' | 'profile' | 'firebase_info';
+type AuthView = 'login' | 'register' | 'forgot' | 'profile';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -37,7 +45,8 @@ interface AuthModalProps {
   onReservationsUpdate: (reservations: ReservationData[]) => void;
   favorites: string[];
   onToggleFavorite: (id: string) => void;
-  onSelectMenuItem?: (itemId: string) => void;
+  onOpenAdminPanel: () => void;
+  onNotify: (type: 'success' | 'error' | 'info', message: string) => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -49,19 +58,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onReservationsUpdate,
   favorites,
   onToggleFavorite,
+  onOpenAdminPanel,
+  onNotify,
 }) => {
   const [activeView, setActiveView] = useState<AuthView>(
     currentUser ? 'profile' : 'login'
   );
 
   // Form states
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [successNotice, setSuccessNotice] = useState<string | null>(null);
+  const [resetSentEmail, setResetSentEmail] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -81,12 +93,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const strength = getPasswordStrength(password);
 
-  const handleLogin = (e: React.FormEvent) => {
+  // Handle Login: checks dedicated Admin via backend or standard user login
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: Record<string, string> = {};
 
-    if (!email.trim() || !validateEmail(email)) {
-      newErrors.email = 'Düzgün e-poçt ünvanı daxil edin.';
+    const trimmedId = identifier.trim();
+    if (!trimmedId) {
+      newErrors.identifier = 'E-poçt ünvanı və ya istifadəçi adınızı daxil edin.';
     }
     if (!password) {
       newErrors.password = 'Şifrənizi daxil edin.';
@@ -95,77 +109,169 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) return;
 
-    // Simulate authentication
-    const user: UserAccount = {
-      id: `usr_${Date.now()}`,
-      fullName: email.split('@')[0].toUpperCase(),
-      email: email.trim(),
-      createdAt: new Date().toLocaleDateString('az-AZ'),
-      favoriteIds: favorites,
-    };
+    setIsLoading(true);
 
-    saveStoredUser(user);
-    onUserChange(user);
-    setSuccessNotice('Uğurla daxil oldunuz!');
-    setActiveView('profile');
-    setErrors({});
+    try {
+      // 1. If username is "Emil" (case-insensitive), authenticate strictly via backend admin endpoint
+      if (trimmedId.toLowerCase() === 'emil') {
+        const adminRes = await fetch('/api/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: trimmedId, password }),
+        });
+        const adminData = await adminRes.json();
+        if (adminRes.ok && adminData.token) {
+          localStorage.setItem('emilcafe_admin_token', adminData.token);
+          const adminUser: UserAccount = {
+            id: 'admin_emil',
+            fullName: 'Emil (İnzibatçı)',
+            email: 'admin@emilcafe.az',
+            createdAt: new Date().toLocaleDateString('az-AZ'),
+            favoriteIds: favorites,
+            role: 'admin',
+          };
+          saveStoredUser(adminUser);
+          onUserChange(adminUser);
+          setIsLoading(false);
+          onClose();
+          onNotify('success', 'İnzibatçı girişi uğurla təsdiqləndi! Admin Panel açılır...');
+          onOpenAdminPanel();
+          return;
+        } else {
+          setIsLoading(false);
+          setErrors({ password: 'Incorrect password.' });
+          onNotify('error', 'Incorrect password.');
+          return;
+        }
+      }
+
+      // 2. Standard user login via backend / Firebase
+      const userDoc = await loginWithFirebase(trimmedId, password);
+      const standardUser: UserAccount = {
+        id: userDoc.uid,
+        fullName: userDoc.fullName,
+        email: userDoc.email,
+        phone: userDoc.phone,
+        createdAt: new Date(userDoc.createdAt).toLocaleDateString('az-AZ'),
+        favoriteIds: userDoc.favoriteIds || favorites,
+        role: userDoc.role || 'user',
+      };
+
+      saveStoredUser(standardUser);
+      onUserChange(standardUser);
+      setIsLoading(false);
+      onNotify('success', `Xoş gəlmisiniz, ${standardUser.fullName}!`);
+
+      if (standardUser.role === 'admin') {
+        onClose();
+        onOpenAdminPanel();
+      } else {
+        setActiveView('profile');
+      }
+    } catch (err: any) {
+      setIsLoading(false);
+      const msg = translateFirebaseError(err);
+      if (msg.includes('No account found')) {
+        setErrors({ identifier: 'No account found with this email address.' });
+      } else if (msg.includes('Incorrect password')) {
+        setErrors({ password: 'Incorrect password.' });
+      } else {
+        setErrors({ form: msg });
+      }
+      onNotify('error', msg);
+    }
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  // Handle Registration: creates account in Backend + Firestore users collection
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: Record<string, string> = {};
 
     if (!fullName.trim() || fullName.trim().length < 3) {
       newErrors.fullName = 'Ad və soyad ən azı 3 simvol olmalıdır.';
     }
-    if (!email.trim() || !validateEmail(email)) {
-      newErrors.email = 'Düzgün e-poçt ünvanı daxil edin.';
+    if (!identifier.trim() || !validateEmail(identifier)) {
+      newErrors.identifier = 'Düzgün bir e-poçt (Gmail) ünvanı daxil edin.';
     }
     if (!password || password.length < 6) {
       newErrors.password = 'Şifrə ən azı 6 simvoldan ibarət olmalıdır.';
     }
     if (password !== confirmPassword) {
-      newErrors.confirmPassword = 'Daxil edilən şifrələr eyni deyil.';
+      newErrors.confirmPassword = 'Daxil edilən şifrələr bir-biri ilə eyni deyil.';
     }
 
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) return;
 
-    const newUser: UserAccount = {
-      id: `usr_${Date.now()}`,
-      fullName: fullName.trim(),
-      email: email.trim(),
-      createdAt: new Date().toLocaleDateString('az-AZ'),
-      favoriteIds: favorites,
-    };
+    setIsLoading(true);
 
-    saveStoredUser(newUser);
-    onUserChange(newUser);
-    setSuccessNotice('Qeydiyyat uğurla tamamlandı!');
-    setActiveView('profile');
-    setErrors({});
+    try {
+      const userDoc = await registerWithFirebase(fullName, identifier, password);
+      const newUser: UserAccount = {
+        id: userDoc.uid,
+        fullName: userDoc.fullName,
+        email: userDoc.email,
+        createdAt: new Date(userDoc.createdAt).toLocaleDateString('az-AZ'),
+        favoriteIds: favorites,
+        role: 'user',
+      };
+
+      saveStoredUser(newUser);
+      onUserChange(newUser);
+      setIsLoading(false);
+      onNotify('success', 'Hesabınız uğurla yaradıldı!');
+      setActiveView('profile');
+    } catch (err: any) {
+      setIsLoading(false);
+      const msg = translateFirebaseError(err);
+      setErrors({ form: msg });
+      onNotify('error', msg);
+    }
   };
 
-  const handleForgotPassword = (e: React.FormEvent) => {
+  // Handle Forgot Password: sends email link via Backend / Firebase
+  const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !validateEmail(email)) {
-      setErrors({ email: 'Zəhmət olmasa düzgün e-poçt ünvanı qeyd edin.' });
+    if (!identifier.trim() || !validateEmail(identifier)) {
+      setErrors({ identifier: 'Zəhmət olmasa bərpa linki üçün düzgün Gmail / e-poçt ünvanınızı daxil edin.' });
       return;
     }
-    setSuccessNotice(`Şifrə yeniləmə təlimatı ${email} ünvanına göndərildi (Demo rejim).`);
-    setErrors({});
+
+    setIsLoading(true);
+    try {
+      const result = await sendFirebasePasswordReset(identifier.trim());
+      setIsLoading(false);
+      setResetSentEmail(identifier.trim());
+      const successNotice = result?.emailSent
+        ? `Şifrə yeniləmə linki ${identifier.trim()} ünvanına göndərildi!`
+        : `Şifrə bərpa sorğusu qəbul edildi. E-poçtunuza təlimat göndərildi.`;
+      onNotify('success', successNotice);
+    } catch (err: any) {
+      setIsLoading(false);
+      const msg = translateFirebaseError(err);
+      if (msg.includes('No account found')) {
+        setErrors({ identifier: 'No account found with this email address.' });
+      } else {
+        setErrors({ identifier: msg });
+      }
+      onNotify('error', msg);
+    }
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('emilcafe_admin_token');
     saveStoredUser(null);
     onUserChange(null);
     setActiveView('login');
-    setSuccessNotice(null);
+    setIdentifier('');
+    setPassword('');
+    onNotify('info', 'Hesabdan uğurla çıxış edildi.');
   };
 
   const handleCancelReservation = (reservationId: string) => {
     const updated = cancelStoredReservation(reservationId);
     onReservationsUpdate(updated);
+    onNotify('info', 'Rezervasiya ləğv edildi.');
   };
 
   const favoriteProducts = MENU_ITEMS.filter((item) => favorites.includes(item.id));
@@ -179,36 +285,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     >
       <div className="relative w-full max-w-lg bg-[#141414] border border-[#2B2B2B] rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
         {/* Header Bar */}
-        <div className="px-6 py-4 border-b border-[#222222] flex items-center justify-between bg-[#111111]">
+        <div className="px-6 py-4 border-b border-[#222222] flex items-center justify-between bg-[#101010]">
           <div className="flex items-center gap-2">
             <span className="font-serif text-xl font-normal text-white">
               EmilCafe <span className="text-[#E0C078]">Hesabı</span>
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setActiveView('firebase_info')}
-              className="text-[11px] text-[#A0A0A0] hover:text-[#C5A059] px-2 py-1 rounded bg-[#1A1A1A] border border-[#2D2D2D] transition-colors"
-            >
-              İnteqrasiya haqqında
-            </button>
-            <button
-              onClick={onClose}
-              className="w-8 h-8 rounded-full bg-[#181818] hover:bg-[#252525] text-[#A6A6A6] hover:text-white flex items-center justify-center transition-colors"
-              aria-label="Pəncərəni bağla"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full bg-[#181818] hover:bg-[#252525] text-[#A6A6A6] hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+            aria-label="Pəncərəni bağla"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
 
         {/* Modal Body with internal scrolling */}
         <div className="p-6 overflow-y-auto flex-1">
-          {successNotice && (
-            <div className="mb-4 p-3 rounded-lg bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 text-xs flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-              <span>{successNotice}</span>
+          {/* Global Form Error Display */}
+          {errors.form && (
+            <div className="mb-4 p-3 rounded-lg bg-rose-950/40 border border-rose-800/60 text-rose-300 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errors.form}</span>
             </div>
           )}
 
@@ -220,24 +319,54 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <div className="w-12 h-12 rounded-full bg-[#C5A059]/20 border border-[#C5A059]/50 flex items-center justify-center text-[#E0C078] font-serif text-xl font-semibold">
                   {currentUser.fullName.charAt(0)}
                 </div>
-                <div className="flex-1">
-                  <h3 className="font-medium text-white text-base">
-                    {currentUser.fullName}
-                  </h3>
-                  <p className="text-xs text-[#8E8E8E]">{currentUser.email}</p>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-medium text-white text-base truncate">
+                      {currentUser.fullName}
+                    </h3>
+                    {currentUser.role === 'admin' && (
+                      <span className="text-[10px] bg-[#C5A059] text-[#0B0B0B] font-bold px-1.5 py-0.2 rounded">
+                        Admin
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-[#8E8E8E] truncate">{currentUser.email}</p>
                   <span className="text-[10px] text-[#C5A059] block mt-0.5">
-                    Qeydiyyat tarixi: {currentUser.createdAt}
+                    Qeydiyyat: {currentUser.createdAt}
                   </span>
                 </div>
                 <button
                   onClick={handleLogout}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-950/30 rounded-lg transition-colors border border-rose-900/40"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-950/30 rounded-lg transition-colors border border-rose-900/40 cursor-pointer"
                   aria-label="Hesabdan çıxış"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                   <span>Çıxış</span>
                 </button>
               </div>
+
+              {/* Admin Panel Direct Link (If Admin) */}
+              {currentUser.role === 'admin' && (
+                <div className="p-3.5 rounded-xl bg-[#1A1610] border border-[#C5A059]/40 flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <Shield className="w-4 h-4 text-[#E0C078]" />
+                    <div>
+                      <h4 className="text-xs font-semibold text-white">İnzibatçı İdarəetmə Paneli</h4>
+                      <p className="text-[11px] text-[#A0A0A0]">Firestore istifadəçiləri və rezervasiyaları idarə edin</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      onClose();
+                      onOpenAdminPanel();
+                    }}
+                    className="px-3 py-1.5 text-xs font-semibold text-[#0B0B0B] bg-[#C5A059] hover:bg-[#D4AF37] rounded-lg transition-colors flex items-center gap-1"
+                  >
+                    <span>Aç</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
 
               {/* User's Reservation History */}
               <div>
@@ -359,28 +488,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 Hesabınıza daxil olun
               </h3>
               <p className="text-xs text-[#9E9E9E] mb-5">
-                Rezervasiyalarınıza və sevimli menyu seçimlərinizə baxın.
+                Şəxsi kabinetinizə daxil olun, rezervasiyalarınızı və sevimli içkilərinizi idarə edin.
               </p>
 
               <div>
                 <label className="block text-xs font-medium text-[#CFCFCF] mb-1.5">
-                  E-poçt ünvanı
+                  E-poçt ünvanı və ya istifadəçi adı
                 </label>
                 <div className="relative">
                   <Mail className="w-4 h-4 text-[#757575] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="nümunə@domain.az"
+                    type="text"
+                    value={identifier}
+                    onChange={(e) => {
+                      setIdentifier(e.target.value);
+                      if (errors.identifier) setErrors({ ...errors, identifier: '' });
+                    }}
+                    placeholder="ad@example.com və ya istifadəçi adınız..."
                     className="w-full pl-10 pr-4 py-2.5 text-xs text-white bg-[#0E0E0E] border border-[#2B2B2B] focus:border-[#C5A059] rounded-lg placeholder-[#666666] focus:outline-none transition-colors"
                     required
                   />
                 </div>
-                {errors.email && (
+                {errors.identifier && (
                   <p className="text-[11px] text-rose-400 mt-1 flex items-center gap-1">
                     <AlertCircle className="w-3 h-3 shrink-0" />
-                    <span>{errors.email}</span>
+                    <span>{errors.identifier}</span>
                   </p>
                 )}
               </div>
@@ -392,8 +524,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </label>
                   <button
                     type="button"
-                    onClick={() => setActiveView('forgot')}
-                    className="text-[11px] text-[#C5A059] hover:underline"
+                    onClick={() => {
+                      setActiveView('forgot');
+                      setResetSentEmail(null);
+                      setErrors({});
+                    }}
+                    className="text-[11px] text-[#C5A059] hover:underline cursor-pointer"
                   >
                     Şifrəni unutmusunuz?
                   </button>
@@ -403,7 +539,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <input
                     type={showPassword ? 'text' : 'password'}
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (errors.password) setErrors({ ...errors, password: '' });
+                    }}
                     placeholder="••••••••"
                     className="w-full pl-10 pr-10 py-2.5 text-xs text-white bg-[#0E0E0E] border border-[#2B2B2B] focus:border-[#C5A059] rounded-lg placeholder-[#666666] focus:outline-none transition-colors"
                     required
@@ -428,9 +567,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <div className="pt-2">
                 <button
                   type="submit"
-                  className="w-full py-3 text-xs font-semibold text-[#0B0B0B] bg-[#C5A059] hover:bg-[#D4AF37] rounded-lg transition-colors cursor-pointer"
+                  disabled={isLoading}
+                  className="w-full py-3 text-xs font-semibold text-[#0B0B0B] bg-[#C5A059] hover:bg-[#D4AF37] disabled:opacity-60 rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-2"
                 >
-                  Daxil ol
+                  {isLoading ? (
+                    <div className="w-4 h-4 border-2 border-[#0B0B0B] border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <span>Daxil ol</span>
+                  )}
                 </button>
               </div>
 
@@ -459,7 +603,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 Yeni hesab yaradın
               </h3>
               <p className="text-xs text-[#9E9E9E] mb-5">
-                EmilCafe imtiyazlarına qoşulun və sifarişlərinizi asanlıqla izləyin.
+                EmilCafe imtiyazlarına qoşulun. Məlumatlarınız Firebase Authentication və Firestore-da saxlanılır.
               </p>
 
               <div>
@@ -487,23 +631,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
               <div>
                 <label className="block text-xs font-medium text-[#CFCFCF] mb-1.5">
-                  E-poçt ünvanı
+                  Gmail / E-poçt ünvanı
                 </label>
                 <div className="relative">
                   <Mail className="w-4 h-4 text-[#757575] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="nümunə@domain.az"
+                    value={identifier}
+                    onChange={(e) => setIdentifier(e.target.value)}
+                    placeholder="ad@gmail.com"
                     className="w-full pl-10 pr-4 py-2.5 text-xs text-white bg-[#0E0E0E] border border-[#2B2B2B] focus:border-[#C5A059] rounded-lg placeholder-[#666666] focus:outline-none transition-colors"
                     required
                   />
                 </div>
-                {errors.email && (
+                {errors.identifier && (
                   <p className="text-[11px] text-rose-400 mt-1 flex items-center gap-1">
                     <AlertCircle className="w-3 h-3 shrink-0" />
-                    <span>{errors.email}</span>
+                    <span>{errors.identifier}</span>
                   </p>
                 )}
               </div>
@@ -531,7 +675,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </button>
                 </div>
 
-                {/* Password Strength Indicator */}
                 {password && (
                   <div className="mt-2 flex items-center gap-2">
                     <div className="flex-1 h-1.5 bg-[#222222] rounded-full overflow-hidden flex gap-1">
@@ -593,9 +736,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <div className="pt-2">
                 <button
                   type="submit"
-                  className="w-full py-3 text-xs font-semibold text-[#0B0B0B] bg-[#C5A059] hover:bg-[#D4AF37] rounded-lg transition-colors cursor-pointer"
+                  disabled={isLoading}
+                  className="w-full py-3 text-xs font-semibold text-[#0B0B0B] bg-[#C5A059] hover:bg-[#D4AF37] disabled:opacity-60 rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-2"
                 >
-                  Qeydiyyatı tamamla
+                  {isLoading ? (
+                    <div className="w-4 h-4 border-2 border-[#0B0B0B] border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <span>Qeydiyyatı tamamla</span>
+                  )}
                 </button>
               </div>
 
@@ -617,95 +765,92 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </form>
           )}
 
-          {/* VIEW: FORGOT PASSWORD */}
+          {/* VIEW: FORGOT PASSWORD (Gmail Reset Link via sendPasswordResetEmail) */}
           {activeView === 'forgot' && (
-            <form onSubmit={handleForgotPassword} noValidate className="space-y-4">
+            <div className="space-y-4">
               <h3 className="font-serif text-2xl font-normal text-white mb-1">
-                Şifrəni bərpa et
+                Şifrəni unutmusunuz?
               </h3>
-              <p className="text-xs text-[#9E9E9E] mb-5">
-                Qeydiyyatdan keçdiyiniz e-poçt ünvanınızı daxil edin.
+              <p className="text-xs text-[#9E9E9E] mb-4">
+                Gmail və ya qeydiyyatdan keçdiyiniz e-poçt ünvanınızı daxil edin. Firebase vasitəsilə Gmail qutunuza avtomatik şifrə sıfırlama linki göndəriləcəkdir.
               </p>
 
-              <div>
-                <label className="block text-xs font-medium text-[#CFCFCF] mb-1.5">
-                  E-poçt ünvanı
-                </label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-[#757575] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="nümunə@domain.az"
-                    className="w-full pl-10 pr-4 py-2.5 text-xs text-white bg-[#0E0E0E] border border-[#2B2B2B] focus:border-[#C5A059] rounded-lg placeholder-[#666666] focus:outline-none transition-colors"
-                    required
-                  />
-                </div>
-                {errors.email && (
-                  <p className="text-[11px] text-rose-400 mt-1 flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3 shrink-0" />
-                    <span>{errors.email}</span>
+              {resetSentEmail ? (
+                <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 text-xs space-y-3">
+                  <div className="flex items-center gap-2 font-semibold text-emerald-200">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                    <span>Şifrə sıfırlama linki göndərildi!</span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-emerald-300/90">
+                    <strong>{resetSentEmail}</strong> Gmail ünvanınıza Firebase tərəfindən şifrə sıfırlama təlimatı göndərildi. Zəhmət olmasa gələnlər qutusunu (və ya Spam qovluğunu) yoxlayın.
                   </p>
-                )}
-              </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveView('login');
+                      setResetSentEmail(null);
+                    }}
+                    className="w-full py-2 text-xs font-semibold text-[#0B0B0B] bg-[#C5A059] hover:bg-[#D4AF37] rounded-lg transition-colors cursor-pointer"
+                  >
+                    Giriş pəncərəsinə qayıt
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleForgotPassword} noValidate className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-medium text-[#CFCFCF] mb-1.5">
+                      Gmail / E-poçt ünvanınız
+                    </label>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 text-[#757575] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        type="email"
+                        value={identifier}
+                        onChange={(e) => {
+                          setIdentifier(e.target.value);
+                          if (errors.identifier) setErrors({ ...errors, identifier: '' });
+                        }}
+                        placeholder="ad@gmail.com"
+                        className="w-full pl-10 pr-4 py-2.5 text-xs text-white bg-[#0E0E0E] border border-[#2B2B2B] focus:border-[#C5A059] rounded-lg placeholder-[#666666] focus:outline-none transition-colors"
+                        required
+                      />
+                    </div>
+                    {errors.identifier && (
+                      <p className="text-[11px] text-rose-400 mt-1 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3 shrink-0" />
+                        <span>{errors.identifier}</span>
+                      </p>
+                    )}
+                  </div>
 
-              <div className="pt-2">
-                <button
-                  type="submit"
-                  className="w-full py-3 text-xs font-semibold text-[#0B0B0B] bg-[#C5A059] hover:bg-[#D4AF37] rounded-lg transition-colors cursor-pointer"
-                >
-                  Bərpa linki göndər
-                </button>
-              </div>
+                  <div className="pt-2">
+                    <button
+                      type="submit"
+                      disabled={isLoading}
+                      className="w-full py-3 text-xs font-semibold text-[#0B0B0B] bg-[#C5A059] hover:bg-[#D4AF37] disabled:opacity-60 rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      {isLoading ? (
+                        <div className="w-4 h-4 border-2 border-[#0B0B0B] border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <span>Gmail-ə sıfırlama linki göndər</span>
+                      )}
+                    </button>
+                  </div>
 
-              <div className="text-center pt-3 border-t border-[#222222]">
-                <button
-                  type="button"
-                  onClick={() => setActiveView('login')}
-                  className="text-xs text-[#C5A059] hover:underline"
-                >
-                  Giriş səhifəsinə qayıt
-                </button>
-              </div>
-            </form>
-          )}
-
-          {/* VIEW: FIREBASE & AUTH ARCHITECTURE INFO */}
-          {activeView === 'firebase_info' && (
-            <div className="space-y-4 text-xs text-[#CFCFCF]">
-              <div className="flex items-center gap-2 text-[#E0C078] mb-1">
-                <ShieldCheck className="w-5 h-5" />
-                <h3 className="font-serif text-lg font-normal text-white">
-                  İstehsalat & Təhlükəsizlik Memarlığı
-                </h3>
-              </div>
-
-              <p className="leading-relaxed text-[#A0A0A0]">
-                Tələblərə uyğun olaraq, hazırkı nümayiş mühitində istifadəçi sessiyaları və rezervasiya tarixçəsi müştəri brauzerində təcrid olunmuş lokal saxlancla idarə olunur.
-              </p>
-
-              <div className="p-3.5 rounded-lg bg-[#0E0E0E] border border-[#262626] space-y-2">
-                <h4 className="font-semibold text-white">İstehsalatda Firebase Aktivləşdirilməsi:</h4>
-                <ol className="list-decimal pl-4 space-y-1.5 text-[#9E9E9E]">
-                  <li>
-                    <strong className="text-white">Firebase Authentication:</strong> Google Sign-In və ya E-mail/Password provayderi GCP konsolunda təsdiqlənir.
-                  </li>
-                  <li>
-                    <strong className="text-white">Cloud Firestore:</strong> <code className="text-[#E0C078]">reservations</code> və <code className="text-[#E0C078]">users</code> kolleksiyaları üçün təhlükəsizlik qaydaları (<code className="text-xs">firestore.rules</code>) tətbiq edilir.
-                  </li>
-                  <li>
-                    <strong className="text-white">Şifrə Təhlükəsizliyi:</strong> Heç vaxt şifrələr açıq şəkildə saxlanılmır və Firebase Auth SDK tərəfindən bcrypt/scrypt ilə qorunur.
-                  </li>
-                </ol>
-              </div>
-
-              <button
-                onClick={() => setActiveView(currentUser ? 'profile' : 'login')}
-                className="w-full py-2.5 text-xs font-semibold text-[#0B0B0B] bg-[#C5A059] hover:bg-[#D4AF37] rounded-lg transition-colors cursor-pointer mt-2"
-              >
-                Geri qayıt
-              </button>
+                  <div className="text-center pt-3 border-t border-[#222222]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveView('login');
+                        setErrors({});
+                      }}
+                      className="text-xs text-[#C5A059] hover:underline cursor-pointer"
+                    >
+                      Giriş səhifəsinə qayıt
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           )}
         </div>

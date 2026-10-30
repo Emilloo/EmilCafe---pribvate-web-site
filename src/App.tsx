@@ -15,6 +15,7 @@ import { GallerySection } from './components/GallerySection';
 import { ContactSection } from './components/ContactSection';
 import { Footer } from './components/Footer';
 import { AuthModal } from './components/AuthModal';
+import { AdminPanel } from './components/AdminPanel';
 import { ToastContainer, ToastMessage } from './components/Toast';
 import {
   UserAccount,
@@ -23,7 +24,9 @@ import {
   getStoredReservations,
   getStoredFavorites,
   toggleStoredFavorite,
+  saveStoredUser,
 } from './utils/cafeLogic';
+import { logoutFromFirebase } from './utils/firebase';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
@@ -32,10 +35,12 @@ export default function App() {
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [view, setView] = useState<'site' | 'admin'>('site');
 
   // Initialize from persistent client storage on mount
   useEffect(() => {
-    setCurrentUser(getStoredUser());
+    const user = getStoredUser();
+    setCurrentUser(user);
     setReservations(getStoredReservations());
     setFavorites(getStoredFavorites());
 
@@ -77,19 +82,48 @@ export default function App() {
     );
   };
 
+  const handleAdminLogout = async () => {
+    localStorage.removeItem('emilcafe_admin_token');
+    await logoutFromFirebase();
+    saveStoredUser(null);
+    setCurrentUser(null);
+    setView('site');
+    addToast('info', 'İnzibatçı hesabından çıxış edildi.');
+  };
+
   const scrollToMenu = () => {
-    const el = document.getElementById('menu');
-    if (el) el.scrollIntoView({ behavior: 'smooth' });
+    if (view !== 'site') setView('site');
+    setTimeout(() => {
+      const el = document.getElementById('menu');
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+    }, 50);
   };
 
   const scrollToReservation = () => {
-    const el = document.getElementById('reservation');
-    if (el) el.scrollIntoView({ behavior: 'smooth' });
+    if (view !== 'site') setView('site');
+    setTimeout(() => {
+      const el = document.getElementById('reservation');
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+    }, 50);
   };
 
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  // If in Admin Panel View, render dedicated dashboard
+  if (view === 'admin') {
+    return (
+      <div className="min-h-screen bg-[#090909] text-[#EDEDED] font-sans selection:bg-[#C5A059]/30 selection:text-[#F3E5AB]">
+        <AdminPanel
+          onReturnToSite={() => setView('site')}
+          onLogout={handleAdminLogout}
+          onNotify={addToast}
+        />
+        <ToastContainer toasts={toasts} onDismiss={removeToast} />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0B0B0B] text-[#EDEDED] font-sans selection:bg-[#C5A059]/30 selection:text-[#F3E5AB]">
@@ -98,6 +132,7 @@ export default function App() {
         currentUser={currentUser}
         onOpenAuth={() => setAuthModalOpen(true)}
         onOpenReservation={scrollToReservation}
+        onOpenAdminPanel={() => setView('admin')}
         favoritesCount={favorites.length}
       />
 
@@ -159,16 +194,13 @@ export default function App() {
         currentUser={currentUser}
         onUserChange={(user) => {
           setCurrentUser(user);
-          if (user) {
-            addToast('success', `Xoş gəlmisiniz, ${user.fullName}!`);
-          } else {
-            addToast('info', 'Hesabdan çıxış edildi.');
-          }
         }}
         reservations={reservations}
         onReservationsUpdate={setReservations}
         favorites={favorites}
         onToggleFavorite={handleToggleFavorite}
+        onOpenAdminPanel={() => setView('admin')}
+        onNotify={addToast}
       />
 
       {/* Toast Feedback Notifications */}

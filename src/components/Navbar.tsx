@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Coffee, User, Menu, X, Calendar } from 'lucide-react';
+import { Coffee, User, Menu, X, Calendar, Shield } from 'lucide-react';
 import { UserAccount } from '../utils/cafeLogic';
 
 interface NavbarProps {
   currentUser: UserAccount | null;
   onOpenAuth: () => void;
   onOpenReservation: () => void;
+  onOpenAdminPanel?: () => void;
   favoritesCount: number;
 }
 
@@ -13,6 +14,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentUser,
   onOpenAuth,
   onOpenReservation,
+  onOpenAdminPanel,
   favoritesCount,
 }) => {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -97,7 +99,19 @@ export const Navbar: React.FC<NavbarProps> = ({
           </nav>
 
           {/* Right Action Zone */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
+            {/* Admin Panel Quick Access Button */}
+            {currentUser?.role === 'admin' && onOpenAdminPanel && (
+              <button
+                onClick={onOpenAdminPanel}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#0B0B0B] bg-[#E0C078] hover:bg-[#D4AF37] rounded-lg shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C5A059] cursor-pointer"
+                title="İnzibatçı İdarəetmə Paneli"
+              >
+                <Shield className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Admin Panel</span>
+              </button>
+            )}
+
             {/* User Profile / Login Button */}
             <button
               onClick={onOpenAuth}
@@ -165,6 +179,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             ))}
           </nav>
           <div className="mt-5 pt-3 flex flex-col gap-3">
+            {currentUser?.role === 'admin' && onOpenAdminPanel && (
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onOpenAdminPanel();
+                }}
+                className="w-full flex items-center justify-center gap-2 py-3 text-sm font-semibold text-[#0B0B0B] bg-[#E0C078] hover:bg-[#D4AF37] rounded-lg transition-colors cursor-pointer"
+              >
+                <Shield className="w-4 h-4" />
+                <span>Admin Panelə Keç</span>
+              </button>
+            )}
             <button
               onClick={() => {
                 setMobileMenuOpen(false);

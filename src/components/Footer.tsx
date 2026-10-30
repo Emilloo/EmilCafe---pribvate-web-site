@@ -55,13 +55,33 @@ export const Footer: React.FC<FooterProps> = ({ onOpenReservation, onExploreMenu
               Bakının qəlbində lüks və səmimi atmosfer. Tək mənşəli specialty qəhvələr, hər gün təzə bişirilən qurme desertlər və unudulmaz anlar üçün yaradılmış butik məkan.
             </p>
 
+            {/* Direct Contact Links */}
+            <div className="pt-2 text-xs space-y-1.5 font-mono">
+              <div>
+                <a
+                  href="tel:0707101252"
+                  className="text-[#E0C078] hover:underline"
+                >
+                  Tel: 070 710 12 52
+                </a>
+              </div>
+              <div>
+                <a
+                  href="mailto:ismayilovemil1109@gmail.com"
+                  className="text-[#C5A059] hover:underline break-all"
+                >
+                  ismayilovemil1109@gmail.com
+                </a>
+              </div>
+            </div>
+
             {/* Social Icons */}
-            <div className="flex items-center gap-3 pt-2">
+            <div className="flex items-center gap-3 pt-1">
               <a
-                href="https://instagram.com"
+                href="https://www.instagram.com/ismylovv111/"
                 target="_blank"
                 rel="noopener noreferrer"
-                aria-label="EmilCafe Instagram"
+                aria-label="EmilCafe Instagram (@ismylovv111)"
                 className="w-8 h-8 rounded-lg bg-[#141414] hover:bg-[#1E1E1E] border border-[#262626] hover:border-[#C5A059]/40 text-[#9E9E9E] hover:text-[#E0C078] flex items-center justify-center transition-colors"
               >
                 <Instagram className="w-4 h-4" />

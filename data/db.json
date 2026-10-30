@@ -1,0 +1,49 @@
+{
+  "users": [
+    {
+      "uid": "usr_seed_leyla",
+      "fullName": "Leyla Məmmədova",
+      "email": "ismayilovemil1109@gmail.com",
+      "passwordHash": "812883edb7d832a6e146523e0664c0cfa4b8217ebe8776512f5e85d696c5b210add7da35f69ea1270cb9def8f6b20c17e45b9d900b0e2660cd27ea844489f88c",
+      "salt": "24418a97aee8efe2cbbfb64028d61b8b",
+      "role": "user",
+      "createdAt": "2026-10-25T14:30:00Z",
+      "phone": "0707101252",
+      "favoriteIds": [
+        "m11",
+        "m3"
+      ],
+      "resetToken": "e777ee36122ede64e273de69a25a8ed76196fe44dde0009e",
+      "resetExpires": 1793351963971
+    },
+    {
+      "uid": "usr_seed_rashad",
+      "fullName": "Rəşad Əliyev",
+      "email": "rashad.aliyev@gmail.com",
+      "passwordHash": "812883edb7d832a6e146523e0664c0cfa4b8217ebe8776512f5e85d696c5b210add7da35f69ea1270cb9def8f6b20c17e45b9d900b0e2660cd27ea844489f88c",
+      "salt": "24418a97aee8efe2cbbfb64028d61b8b",
+      "role": "user",
+      "createdAt": "2026-10-26T11:15:00Z",
+      "phone": "+994 55 890 12 34",
+      "favoriteIds": [
+        "m1",
+        "m8"
+      ]
+    }
+  ],
+  "reservations": [
+    {
+      "id": "res_seed_1",
+      "referenceCode": "EC-44848",
+      "fullName": "Leyla Məmmədova",
+      "phone": "0707101252",
+      "email": "ismayilovemil1109@gmail.com",
+      "date": "2026-10-31",
+      "time": "19:00",
+      "guests": 2,
+      "notes": "Pəncərə kənarı masa",
+      "createdAt": "2026-10-25T14:32:00Z",
+      "status": "confirmed"
+    }
+  ]
+}

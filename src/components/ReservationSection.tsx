@@ -21,6 +21,7 @@ import {
   generateReservationReference,
   saveReservation,
 } from '../utils/cafeLogic';
+import { saveReservationToFirestore } from '../utils/firebase';
 import { TIME_SLOTS } from '../data/cafeData';
 
 interface ReservationSectionProps {
@@ -108,6 +109,7 @@ export const ReservationSection: React.FC<ReservationSectionProps> = ({
       };
 
       saveReservation(newReservation);
+      saveReservationToFirestore(newReservation);
       onReservationCreated(newReservation);
       setConfirmedReservation(newReservation);
       setIsSubmitting(false);

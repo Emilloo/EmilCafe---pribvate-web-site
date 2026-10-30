@@ -13,6 +13,8 @@ import {
 test('phone validation: accepts valid Azerbaijani phone numbers', () => {
   assert.equal(validatePhone('+994501234567'), true);
   assert.equal(validatePhone('050 123 45 67'), true);
+  assert.equal(validatePhone('0707101252'), true);
+  assert.equal(validatePhone('070 710 12 52'), true);
   assert.equal(validatePhone('+994 55 987-65-43'), true);
   assert.equal(validatePhone('0701112233'), true);
   assert.equal(validatePhone('0771234567'), true);
@@ -99,3 +101,4 @@ test('menu filtering: filters by category and search keyword', () => {
   assert.equal(searchDesc.length, 1);
   assert.equal(searchDesc[0].name, 'Espresso');
 });
+

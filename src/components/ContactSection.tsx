@@ -70,14 +70,14 @@ export const ContactSection: React.FC = () => {
                 <div className="flex-1">
                   <h3 className="text-sm font-semibold text-white mb-1">Telefon</h3>
                   <a
-                    href="tel:+994125980000"
-                    className="text-xs font-mono text-[#E0C078] hover:underline"
+                    href="tel:0707101252"
+                    className="text-sm font-mono text-[#E0C078] hover:underline"
                     aria-label="Kafeyə zəng et"
                   >
-                    +994 12 598 00 00
+                    070 710 12 52
                   </a>
-                  <span className="block text-[10px] text-[#808080] mt-1">
-                    * Placeholder nömrə (istehsalatda faktiki nömrə ilə əvəzlənməlidir)
+                  <span className="block text-[11px] text-[#9E9E9E] mt-1">
+                    Rezervasiya və məlumat xətti (Zəng və WhatsApp)
                   </span>
                 </div>
               </div>
@@ -92,14 +92,38 @@ export const ContactSection: React.FC = () => {
                 <div className="flex-1">
                   <h3 className="text-sm font-semibold text-white mb-1">E-poçt</h3>
                   <a
-                    href="mailto:hello@emilcafe.example"
-                    className="text-xs font-mono text-[#E0C078] hover:underline"
+                    href="mailto:ismayilovemil1109@gmail.com"
+                    className="text-xs sm:text-sm font-mono text-[#E0C078] hover:underline break-all"
                     aria-label="E-poçt göndər"
                   >
-                    hello@emilcafe.example
+                    ismayilovemil1109@gmail.com
                   </a>
-                  <span className="block text-[10px] text-[#808080] mt-1">
-                    * Nümayiş e-poçtu (demo placeholder)
+                  <span className="block text-[11px] text-[#9E9E9E] mt-1">
+                    Təklif, əməkdaşlıq və rəsmi müraciətlər üçün
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Instagram */}
+            <div className="bg-[#141414] border border-[#242424] rounded-xl p-5 hover:border-[#C5A059]/40 transition-colors">
+              <div className="flex items-start gap-4">
+                <div className="w-10 h-10 rounded-lg bg-[#1F1F1F] text-[#C5A059] flex items-center justify-center shrink-0 mt-0.5">
+                  <ExternalLink className="w-5 h-5" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-semibold text-white mb-1">Instagram</h3>
+                  <a
+                    href="https://www.instagram.com/ismylovv111/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs sm:text-sm font-mono text-[#E0C078] hover:underline inline-flex items-center gap-1.5"
+                    aria-label="Emil Instagram səhifəsi"
+                  >
+                    <span>@ismylovv111</span>
+                  </a>
+                  <span className="block text-[11px] text-[#9E9E9E] mt-1">
+                    Gündəlik yeniliklər və vizual paylaşımlar
                   </span>
                 </div>
               </div>

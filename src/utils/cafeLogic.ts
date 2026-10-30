@@ -37,6 +37,7 @@ export interface UserAccount {
   phone?: string;
   createdAt: string;
   favoriteIds: string[];
+  role?: 'admin' | 'user';
 }
 
 /**
